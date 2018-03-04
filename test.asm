@@ -1,40 +1,40 @@
 ; function prime
 prime:
-	irmovq $1, %r8
-	irmovq $2, %rcx
+	irmov $1, %r8
+	irmov $2, %rcx
 .L1:
-	rrmovq %rcx, %rax
-	imulq %rcx
-	cmpq %rax, %rdi
+	rrmov %rcx, %rax
+	mul %rcx, %rax
+	cmp %rax, %rdi
 	jl .L3
-	rrmovq %rdi, %rax
+	rrmov %rdi, %rax
 	cqto
-	idivq %rcx
-	testq %rdx, %rdx
-	jns .L2
-	xorq %rax, %rax
+	idiv %rcx
+	test %rdx, %rdx
+	jne .L2
+	xor %rax, %rax
 	ret
 .L2:
-	addq %r8, %rcx
+	add %r8, %rcx
 	jmp .L1
 .L3:
-	irmovq $1, %rax
+	irmov $1, %rax
 	ret
 
 ; function main
 main:
-	irmovq $1, %r8
-	irmovq $100, %r9
-	irmovq $2, %rdi
+	irmov $1, %r10
+	irmov $100, %r11
+	irmov $2, %rdi
 .L4:
-	cmpq %rdi, %r9
+	cmp %rdi, %r11
 	jl .L6
 	call prime
-	testq %rax, %rax
-	js .L5
+	test %rax, %rax
+	je .L5
 	echo %rdi
 .L5:
-	addq %r8, %rdi
+	add %r10, %rdi
 	jmp .L4
 .L6:
-	ret
+	halt

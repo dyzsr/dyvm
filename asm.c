@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
+#include <inttypes.h>
 
 
 /* ****************************************************************************
@@ -16,7 +17,7 @@
  *
  * **** transmit **************************************************************
  *
- * 10 rrmovq rA, rB
+ * 10 rrmov rA, rB
  *
  * 11 cmove rA, rB
  * 12 cmovne rA, rB
@@ -34,33 +35,37 @@
  * 1B cmovb rA, rB
  * 1C cmovbe rA, rB
  *
- * 20 irmovq $, rA
+ * 20 irmov $, rA
  *
- * 30 rmmovq rA, $(rB, rI, C)
- * 31 mrmovq $(rB, rI, C), rA
+ * 30 rmmov rA, $(rB, rI, C)
+ * 31 mrmov $(rB, rI, C), rA
  *
  * **** arithmetic & logic ****************************************************
  *
- * 40 addq rA, rB
- * 41 subq rA, rB
- * 42 andq rA, rB
- * 43 orq rA, rB
- * 44 xorq rA, rB
- * 45 notq rA
- * 46 salq rA, rB [rA is the offset]
- * 47 sarq rA, rB
- * 48 shrq rA, rB
+ * 40 add rA, rB
+ * 41 sub rA, rB
+ * 42 and rA, rB
+ * 43 or rA, rB
+ * 44 xor rA, rB
+ * 45 sal rA, rB [rA is the offset]
+ * 46 sar rA, rB
+ * 47 shr rA, rB
+ * 48 mul rA, rB
+ * 49 inc rA
+ * 4A dec rA
+ * 4B neg rA
+ * 4C not rA
  *
- * 50 imulq rA [%rax multiplied by rA]
- * 51 mulq rA [unsigned]
- * 52 idivq rA [(%rdx, %rax) divided by rA]
- * 53 divq rA [unsigned]
+ * 50 imul rA [%rax multiplied by rA]
+ * 51 umul rA [unsigned]
+ * 52 idiv rA [(%rdx, %rax) divided by rA]
+ * 53 div rA [unsigned]
  * 60 cqto
  *
- * 70 leaq $(rB, rI, C), rA
+ * 70 lea $(rB, rI, C), rA
  *
- * 80 cmpq rA, rB
- * 81 testq rA, rB
+ * 80 cmp rA, rB
+ * 81 test rA, rB
  *
  * **** jump ******************************************************************
  *
@@ -88,12 +93,13 @@
 * 
 *  **** stack *****************************************************************
 * 
-*  B0 pushq rA
-*  B1 popq rA
+*  B0 push rA
+*  B1 pop rA
 * 
 *  **** io ********************************************************************
 * 
-*  C0 echo rA
+*  C0 iecho rA
+*  C1 echo rA
 * 
 *  ***************************************************************************
 * 
@@ -101,24 +107,25 @@
 
 // DEFINATIONS ================================================================
 
-typedef unsigned char uchar;
+//typedef unsigned char uint8_t;
 
 const char *ins_id[16][16] = {
 	{ "halt", "nop", },
-	{ "rrmovq", "cmove", "cmovne", "cmovs", "cmovns", "cmovg", "cmovge",
+	{ "rrmov", "cmove", "cmovne", "cmovs", "cmovns", "cmovg", "cmovge",
 		"cmovl", "cmovle", "cmova", "cmovae", "cmovb", "cmovbe", },
-	{ "irmovq", },
-	{ "rmmovq", "mrmovq", },
-	{ "addq", "subq", "andq", "orq", "xorq", "notq", "salq", "sarq", "shrq", },
-	{ "imulq", "mulq", "idivq", "divq", },
+	{ "irmov", },
+	{ "rmmov", "mrmov", },
+	{ "add", "sub", "and", "or", "xor", "sal", "sar", "shr", "mul", 
+		"inc", "dec", "neg", "not",},
+	{ "imul", "umul", "idiv", "div", },
 	{ "cqto", },
-	{ "leaq", },
-	{ "cmpq", "testq", },
+	{ "lea", },
+	{ "cmp", "test", },
 	{ "jmp", "je", "jne", "js", "jns", "jg", "jge", 
 		"jl", "jle", "ja", "jae", "jb", "jbe", "call", },
 	{ "ret", },
-	{ "pushq", "popq", },
-	{ "echo", },
+	{ "push", "pop", },
+	{ "iecho", "echo", },
 };
 
 // instruction types
@@ -135,7 +142,7 @@ const int ins_type[16][16] = {
 	{ 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, },
 	{ 4, },
 	{ 5, 6, },
-	{ 3, 3, 3, 3, 3, 2, 3, 3, 3, },
+	{ 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2},
 	{ 2, 2, 2, 2, },
 	{ 0, },
 	{ 6, },
@@ -143,7 +150,7 @@ const int ins_type[16][16] = {
 	{ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, },
 	{ 0, },
 	{ 2, 2, },
-	{ 2, },
+	{ 2, 2, },
 };
 
 #define REG_NUM 15
@@ -157,7 +164,7 @@ const char *reg_id[REG_NUM] = {
 #define MAX_LINE_WIDTH 100
 
 char input[MAX_SIZE];
-uchar output[MAX_SIZE];
+uint8_t output[MAX_SIZE];
 
 
 // ERRORS =====================================================================
@@ -304,7 +311,7 @@ int eat_blank(char **src) {
 	return 1;
 }
 
-int read_ins_id(uchar *dest, char **src) {
+int read_ins_id(uint8_t *dest, char **src) {
 	char *s = *src;
 	int k;
 	for (k = 0; s[k] && s[k] != ' '; k++);
@@ -357,12 +364,12 @@ int read_matching_label(char *dest, char **src) {
 	return OK;
 }
 
-int read_immediate(long *dest, char **src) {
+int read_immediate(int64_t *dest, char **src) {
 	char *s = *src;
 	if (*s != '$') return ERROR_INVALID_IMMEDIATE_FORMAT;
 	s++;
 
-	long val = 0, sgn = 0;
+	int64_t val = 0, sgn = 0;
 	if (*s == '-') sgn = 1, s++;
 
 	int base = 10;
@@ -395,7 +402,7 @@ int read_immediate(long *dest, char **src) {
 	return OK;
 }
 
-int read_reg_id(uchar *dest, char **src) {
+int read_reg_id(uint8_t *dest, char **src) {
 	char *s = *src;
 	int k = 0;
 	for (; s[k] && s[k] != ' ' && s[k] != ','; k++);
@@ -417,9 +424,9 @@ int read_reg_id(uchar *dest, char **src) {
 	return OK;
 }
 
-int read_mem_addr(long *I, uchar *rB, uchar *rI, uchar *C, char **src) {
-	long t_I = 0;
-	uchar t_rB = 0xff, t_rI = 0xff, t_C = 1;
+int read_mem_addr(int64_t *I, uint8_t *rB, uint8_t *rI, uint8_t *C, char **src) {
+	int64_t t_I = 0;
+	uint8_t t_rB = 0xff, t_rI = 0xff, t_C = 1;
 
 	char *s = *src;
 
@@ -458,7 +465,7 @@ int read_mem_addr(long *I, uchar *rB, uchar *rI, uchar *C, char **src) {
 	for (; s[k] && s[k] != ',' && s[k] != ')'; k++);
 	c = s[k];
 	s[k] = 0;
-	uchar tmp = 0xff;
+	uint8_t tmp = 0xff;
 	for (int i = 0; i < REG_NUM; i++) {
 		if (strcmp(reg_id[i], s) == 0) {
 			tmp = i;
@@ -520,12 +527,12 @@ L3:
 
 struct Label {
 	char identifier[MAX_LABEL_LENGTH];
-	long index;
+	int64_t index;
 	int flag;
 } dest_labels[MAX_LABEL_NUM],
 	src_labels[MAX_LABEL_NUM * 2];
 
-int add_label(char *iden, long index) {
+int add_label(char *iden, int64_t index) {
 	int i;
 	for (i = 0; i < MAX_LABEL_NUM; i++) {
 		char *s = dest_labels[i].identifier;
@@ -542,8 +549,8 @@ int add_label(char *iden, long index) {
 	return OK;
 }
 
-int find_label(char *iden, long *index) {
-	long idx = -1;
+int find_label(char *iden, int64_t *index) {
+	int64_t idx = -1;
 	for (int i = 0; i < MAX_LABEL_NUM; i++) {
 		char *s = dest_labels[i].identifier;
 		if (*s == 0) break;
@@ -557,7 +564,7 @@ int find_label(char *iden, long *index) {
 	return OK;
 }
 
-int add_src_label(char *iden, long index) {
+int add_src_label(char *iden, int64_t index) {
 	const static int max_label_num = MAX_LABEL_NUM * 2;
 	static int label_num = 0;
 	if (label_num >= max_label_num) return ERROR_LABEL_NUM_EXCEED;
@@ -578,13 +585,13 @@ int replace_labels() {
 			char *t = dest_labels[j].identifier;
 			if (!*t) break;
 			if (strcmp(s, t) == 0) {
-				long index1 = src_labels[i].index;
+				int64_t index1 = src_labels[i].index;
 				src_labels[i].flag = 1;
-				long index2 = dest_labels[j].index;
+				int64_t index2 = dest_labels[j].index;
 				dest_labels[j].flag = 1;
-				long alter = index2 - index1;
+				int64_t alter = index2;
 				printf("$ %ld %ld %ld $\n", index1, index2, alter);
-				long *p = (long *)(output + index1 + 1);
+				int64_t *p = (int64_t *)(output + index1 + 1);
 				*p = alter;
 			}
 		}
@@ -604,13 +611,13 @@ int replace_labels() {
 
 // INTERPRET ==================================================================
 
-long interpret() {
+int64_t interpret() {
 	char *src = input, *tmp = input;
 	char q = 'I';
 	// I: instruction: icode & ifun
 	// L: destination label
 
-	long index = 0;
+	int64_t index = 0;
 
 	char label[MAX_LABEL_LENGTH];
 	int verdict = 0;
@@ -622,7 +629,7 @@ long interpret() {
 		verdict = 0;
 
 		if (q == 'I') {
-			uchar op;
+			uint8_t op;
 			verdict = read_ins_id(&op, &src);
 			if (op == 0xff) {
 				q = 'L';
@@ -631,8 +638,8 @@ long interpret() {
 				int type = ins_type[op >> 4 & 0xff][op & 0xf];	
 				printf("<<%d>>\n", type);
 
-				long I, *p;
-				uchar rA, rB, rI, C;
+				int64_t I, *p;
+				uint8_t rA, rB, rI, C;
 
 				switch (type) {
 					case 0: // null
@@ -696,7 +703,7 @@ long interpret() {
 						if (verdict) goto outside;
 
 						output[index++] = (rA << 4 & 0xff) | 0xf;
-						p = (long *)(output + index);
+						p = (int64_t *)(output + index);
 						*p = I;
 						index += 8;
 
@@ -718,7 +725,7 @@ long interpret() {
 
 						output[index++] = (rA << 4 & 0xff) | (rB & 0xf);
 						output[index++] = (rI << 4 & 0xff) | (C & 0xf);
-						p = (long *)(output + index);
+						p = (int64_t *)(output + index);
 						*p = I;
 						index += 8;
 						
@@ -738,7 +745,7 @@ long interpret() {
 
 						output[index++] = (rA << 4 & 0xff) | (rB & 0xf);
 						output[index++] = (rI << 4 & 0xff) | (C & 0xf);
-						p = (long *)(output + index);
+						p = (int64_t *)(output + index);
 						*p = I;
 						index += 8;
 
@@ -802,7 +809,7 @@ outside:
 
 // OUTPUT =====================================================================
 
-void write_file(char *argv1, long size) {
+void write_file(char *argv1, int64_t size) {
 	int length = strlen(argv1);
 	for (int i = length - 1; i >= 0; i--) {
 		if (argv1[i] == '.') {
@@ -822,9 +829,9 @@ void write_file(char *argv1, long size) {
 	FILE *fpo2 = fopen(filename, "w");
 	if (!fpo2) exit(0);
 
-	long idx = 0;
+	int64_t idx = 0;
 	while (idx < size) {
-		uchar op = output[idx];
+		uint8_t op = output[idx];
 		int type = ins_type[op >> 4 & 0xff][op & 0xf];
 
 		int n = 1;
@@ -857,11 +864,11 @@ int main(int argc, char *argv[]) {
 		error_no_input_file();
 	}
 
-	strcpy(input, "call main ");
+	strcpy(input, "jmp main ");
 	read_file();
 	preprocess();
 
-	long size = interpret();
+	int64_t size = interpret();
 	write_file(argv[1], size);
 
 	return 0;
