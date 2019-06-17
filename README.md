@@ -47,7 +47,7 @@
   | 4    | REG   | illegal register id                      |
   | 5    | LOG   | logic errors                             |
 
-###iii. Memory
+### iii. Memory
 
   The current memory size is 1MB (`0x100000`). The whole memory is divided into three sections: *stack section*, *program section* and *data section*. 
 
@@ -59,7 +59,7 @@
 
 
 
-##II. Instruction Set Architecture
+## II. Instruction Set Architecture
 
 This is the instruction list of *DY64 ISA*. In which,
 
